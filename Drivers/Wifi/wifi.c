@@ -472,7 +472,7 @@ WIFI_Status_t WIFI_GetModuleFwRevision(char *rev)
 {
   WIFI_Status_t ret = WIFI_STATUS_ERROR; 
   
-  if(EsWifiObj.FW_Rev != NULL)
+  if(rev != NULL)
   {
     strncpy(rev, (char *)EsWifiObj.FW_Rev, ES_WIFI_FW_REV_SIZE);
     ret = WIFI_STATUS_OK; 
@@ -489,7 +489,7 @@ WIFI_Status_t WIFI_GetModuleID(char *Id)
 {
   WIFI_Status_t ret = WIFI_STATUS_ERROR; 
   
-  if(EsWifiObj.Product_ID != NULL)
+  if(Id != NULL)
   {
     strncpy(Id, (char *)EsWifiObj.Product_ID, ES_WIFI_PRODUCT_ID_SIZE);
     ret = WIFI_STATUS_OK; 
@@ -506,7 +506,7 @@ WIFI_Status_t WIFI_GetModuleName(char *ModuleName)
 {
   WIFI_Status_t ret = WIFI_STATUS_ERROR; 
   
-  if(EsWifiObj.Product_Name != NULL)
+  if(ModuleName != NULL)
   {
     strncpy(ModuleName, (char *)EsWifiObj.Product_Name, ES_WIFI_PRODUCT_NAME_SIZE);
     ret = WIFI_STATUS_OK; 

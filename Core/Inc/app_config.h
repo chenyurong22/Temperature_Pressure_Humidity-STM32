@@ -2,7 +2,6 @@
 #define APP_CONFIG_H
 
 #include <stdint.h>
-#include "wifi.h"
 #include "app_secrets.h"
 
 #define APP_DEVICE_ID "stm32-room"
@@ -12,7 +11,8 @@
 #define APP_SEND_RETRY_INTERVAL_MS 60000UL
 #define APP_RETRY_INTERVAL_MS 30000UL
 
-#define APP_WIFI_SECURITY WIFI_ECN_WPA_WPA2_PSK
+#define APP_WIFI_SECURITY_WPA_WPA2_PSK 4U
+#define APP_WIFI_SECURITY APP_WIFI_SECURITY_WPA_WPA2_PSK
 
 #define APP_API_HOST "iot.mathislambert.fr"
 #define APP_API_IP_ADDR_VALUE_0 82U
