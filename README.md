@@ -104,7 +104,7 @@ The firmware sends an HTTP `POST` request with a JSON body similar to:
     "wifi_reconnect_count": 1
   },
   "network": {
-    "ssid": "Livebox-22D0_2.4GHz",
+    "ssid": "your_wifi_2.4GHz",
     "local_ip": "192.168.1.52",
     "api_host": "iot.mathislambert.fr",
     "api_ip": "82.67.120.109",
@@ -113,7 +113,7 @@ The firmware sends an HTTP `POST` request with a JSON body similar to:
   "config": {
     "send_interval_ms": 300000,
     "retry_interval_ms": 60000,
-    "temperature_offset_c": 6.00,
+    "temperature_offset_c": 6.0,
     "sample_count": 5
   },
   "sensors": {
@@ -157,7 +157,7 @@ Example:
 [2] INFO  Starting stm32-room
 [5] INFO  Sensors initialized
 [588] INFO  WiFi module initialized
-[591] INFO  Connecting to WiFi SSID "Livebox-22D0_2.4GHz"
+[591] INFO  Connecting to WiFi SSID "your_wifi_2.4GHz"
 [5660] INFO  WiFi connected with local IP 192.168.1.52
 [6074] INFO  Telemetry temp=25.24C raw=31.24C hum=46.37% pressure=991.38hPa
 [6081] INFO  Opening TCP connection to iot.mathislambert.fr:80 (82.67.120.109)
