@@ -1,3 +1,24 @@
-.settings
-.vs
-.vscode
+# IDE metadata
+.settings/
+.vs/
+.vscode/
+
+# STM32CubeIDE build outputs
+Debug/
+Release/
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.o
+*.d
+*.su
+*.cyclo
+
+# Local secrets
+Core/Inc/app_secrets.h
+
+# OS noise
+Thumbs.db
+Desktop.ini

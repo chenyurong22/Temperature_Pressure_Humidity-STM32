@@ -21,12 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "stm32l475e_iot01.h"
-#include "stm32l475e_iot01_tsensor.h"
-#include "stm32l475e_iot01_hsensor.h"
-#include "stm32l475e_iot01_psensor.h"
-#include "wifi.h"
-#include <math.h>
+#include "app.h"
+#include "log.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,8 +32,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define WIFI_SSID "Livebox-22D0_5GHz"
-#define WIFI_PASSWD "qrvN2TXtx4S2kvFVHD"
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,16 +54,7 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-uint8_t MAC_Addr[6];
-uint8_t IP_Addr[4];
-float temp_value = 0;
-float h_value = 0;
-float p_value = 0;      // Measured temperature value
-char str_tmp[100] = ""; // Formatted message to display the temperature value
-char str_macaddr[100] = "";
-char str_ip[100] = "";
-uint8_t msg1[] = "=====> All sensors are initialized \r\n ";
-uint8_t msg2[] = "****** WELCOME TO Mathis's room IoT service v1.0.0 ******\n\n\r";
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,10 +67,6 @@ static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_UART4_Init(void);
-void transmit_string(char *StrArg)
-{
-  HAL_UART_Transmit(&huart1, (uint8_t *)StrArg, strlen(StrArg), 10);
-}
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -119,139 +101,14 @@ int main(void)
   MX_UART4_Init();
   /* USER CODE BEGIN 2 */
 
-  BSP_TSENSOR_Init();
-  BSP_HSENSOR_Init();
-  BSP_PSENSOR_Init();
-  HAL_UART_Transmit(&huart1, msg1, sizeof(msg1), 10);
-  HAL_UART_Transmit(&huart1, msg2, sizeof(msg2), 10);
+  Log_Init(&huart1);
+  App_Init();
 
   while (1)
   {
-    if (WIFI_Init() == WIFI_STATUS_OK)
-    {
-      /*transmit_string("> Module Initialized \n");*/
-      /*if (WIFI_GetMAC_Address(MAC_Addr) == WIFI_STATUS_OK)
-      {
-        snprintf(str_macaddr, 75, "> es-wifi module MAC Address : %X:%X:%X:%X:%X:%X\n",
-                 MAC_Addr[0],
-                 MAC_Addr[1],
-                 MAC_Addr[2],
-                 MAC_Addr[3],
-                 MAC_Addr[4],
-                 MAC_Addr[5]);
-        HAL_UART_Transmit(&huart1, (uint8_t *)str_macaddr, sizeof(str_macaddr), 100);
-      }
-      else
-      {
-        transmit_string("> ERROR : CANNOT get MAC address\n");
-        continue;
-      }*/
-
-      if (WIFI_Connect(WIFI_SSID, WIFI_PASSWD, 0x03) == WIFI_STATUS_OK)
-      {
-        /*transmit_string("Module connecte !! \n\n\r");*/
-
-        if (WIFI_GetIP_Address(IP_Addr) == WIFI_STATUS_OK)
-        {
-          snprintf(str_ip, 100, "> Le module WIFI a l'adresse IP : %d.%d.%d.%d\n\n\r", IP_Addr[0], IP_Addr[1], IP_Addr[2], IP_Addr[3]);
-          HAL_UART_Transmit(&huart1, (uint8_t *)str_ip, sizeof(str_ip), 100);
-
-          uint32_t socket = 0;
-          const char *name = "api.mathislambert.fr";
-          uint8_t ipaddr[] = {179, 61, 246, 134};
-          uint16_t port = 80;
-          uint16_t local_port = 61534;
-          while (1)
-          {
-            if (WIFI_OpenClientConnection(socket, WIFI_TCP_PROTOCOL, name, ipaddr, port, local_port) == WIFI_STATUS_OK)
-            {
-
-              /*transmit_string("> Connected to the server ! \n\r");*/
-
-              temp_value = BSP_TSENSOR_ReadTemp();
-              h_value = BSP_HSENSOR_ReadHumidity();
-              p_value = BSP_PSENSOR_ReadPressure();
-              int tmpInt1 = temp_value;
-              int humInt1 = h_value;
-              int presInt1 = p_value;
-              float tmpFrac = temp_value - tmpInt1;
-              float humFrac = h_value - humInt1;
-              float presFrac = p_value - presInt1;
-              int tmpInt2 = trunc(tmpFrac * 100);
-              int humInt2 = trunc(humFrac * 100);
-              int presInt2 = trunc(presFrac * 100);
-
-              char json_data[150];
-              snprintf(json_data, 150, "{\"values\": {\"temp\": %d.%02d, \"hum\": %d.%02d, \"pressure\": %d.%02d}}", tmpInt1, tmpInt2, humInt1, humInt2, presInt1, presInt2);
-
-              unsigned char pdata[250];
-              snprintf((char *)pdata, 250, "POST / HTTP/1.1\r\nHost: api.mathislambert.fr\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s\r\n", strlen(json_data), json_data); // données JSON
-              uint16_t Reqlen = sizeof(pdata) - 1;                                                                                                                                               // longueur des données
-              uint16_t SentDatalen;                                                                                                                                                              // nombre de données envoyées
-              uint32_t Timeout = 10000;                                                                                                                                                          // 1 secondes de délai d'attente
-
-              if (WIFI_SendData(socket, (unsigned char *)pdata, Reqlen, &SentDatalen, Timeout) == WIFI_STATUS_OK)
-              {
-                /*transmit_string("> Data sent successfully \n\r");*/
-
-                uint8_t RcvData[512];
-                uint16_t RcvDatalen;
-                uint32_t Timeout = 10000;
-
-                if (WIFI_ReceiveData(socket, RcvData, sizeof(RcvData), &RcvDatalen, Timeout) == WIFI_STATUS_OK)
-                {
-                  /*transmit_string("> Response received \n\r");*/
-
-                  if (WIFI_CloseClientConnection(socket) == WIFI_STATUS_OK)
-                  {
-                    /*transmit_string("> Disconnected successfully \n\n\r");*/
-                    HAL_Delay(300000);
-                  }
-                  else
-                  {
-                    transmit_string("> Impossible to disconnect \n\r");
-                    break;
-                  }
-                }
-                else
-                {
-                  transmit_string("> Error during data reception \n\r");
-                  break;
-                }
-              }
-              else
-              {
-                transmit_string("Unable to send date \n\r");
-                break;
-              }
-            }
-            else
-            {
-              transmit_string("> Unable to connect to the server \n\n\r");
-              break;
-            }
-          }
-        }
-        else
-        {
-          transmit_string("> le module ES_WIFI ne peut pas obtenir l'adresse IP\n\r");
-          continue;
-        }
-      }
-      else
-      {
-        transmit_string("Erreur de connexion du module \n\r");
-        continue;
-      }
-    }
-    else
-    {
-      transmit_string("> ERROR initializing WIFI MODULE. \n\r");
-      continue;
-    }
-    /* USER CODE END 2 */
+    App_Loop();
   }
-  return 0;
+  /* USER CODE END 2 */
 }
 
 /**

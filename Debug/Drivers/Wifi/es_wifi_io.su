@@ -1,6 +1,0 @@
-../Drivers/Wifi/es_wifi_io.c:72:6:SPI_WIFI_MspInit	56	static
-../Drivers/Wifi/es_wifi_io.c:143:8:SPI_WIFI_Init	24	static
-../Drivers/Wifi/es_wifi_io.c:201:8:SPI_WIFI_DeInit	8	static
-../Drivers/Wifi/es_wifi_io.c:214:9:SPI_WIFI_ReceiveData	40	static
-../Drivers/Wifi/es_wifi_io.c:282:9:SPI_WIFI_SendData	32	static
-../Drivers/Wifi/es_wifi_io.c:326:6:SPI_WIFI_Delay	16	static

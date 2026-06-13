@@ -1,0 +1,34 @@
+#ifndef APP_CONFIG_H
+#define APP_CONFIG_H
+
+#include <stdint.h>
+#include "wifi.h"
+#include "app_secrets.h"
+
+#define APP_DEVICE_ID "stm32-room"
+#define APP_FIRMWARE_VERSION "1.1.0"
+#define APP_LOCATION "room"
+#define APP_SEND_INTERVAL_MS 300000UL
+#define APP_SEND_RETRY_INTERVAL_MS 60000UL
+#define APP_RETRY_INTERVAL_MS 30000UL
+
+#define APP_WIFI_SECURITY WIFI_ECN_WPA_WPA2_PSK
+
+#define APP_API_HOST "iot.mathislambert.fr"
+#define APP_API_IP_ADDR_VALUE_0 82U
+#define APP_API_IP_ADDR_VALUE_1 67U
+#define APP_API_IP_ADDR_VALUE_2 120U
+#define APP_API_IP_ADDR_VALUE_3 109U
+#define APP_API_IP_ADDR {82U, 67U, 120U, 109U}
+#define APP_API_PATH "/?device=" APP_DEVICE_ID
+#define APP_API_PORT 80U
+
+#define APP_SOCKET_ID 0U
+#define APP_SOCKET_LOCAL_PORT 61534U
+#define APP_NETWORK_TIMEOUT_MS 10000UL
+
+#define APP_TEMPERATURE_OFFSET_C 6.0f
+#define APP_TELEMETRY_SAMPLE_COUNT 5U
+#define APP_TELEMETRY_SAMPLE_DELAY_MS 100U
+
+#endif
