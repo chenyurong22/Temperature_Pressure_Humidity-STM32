@@ -1,6 +1,6 @@
 # STM32 IoT Telemetry Client
 
-Firmware for the ST B-L475E-IOT01A board. The device connects to a 2.4 GHz Wi-Fi network, reads onboard environmental sensors, and periodically sends telemetry to an HTTP API behind Traefik.
+Firmware for the ST B-L475E-IOT01A board. The device connects to a 2.4 GHz Wi-Fi network, reads onboard environmental sensors, periodically sends telemetry to an HTTP API behind Traefik, and listens for MQTT Wake-on-LAN commands.
 
 The main use case is to keep a remote server informed that the home network is alive. Because every API call reaches the server through the Livebox public IP, the backend can infer and log the current public IP address without the STM32 needing to know it.
 
@@ -12,6 +12,8 @@ The main use case is to keep a remote server informed that the home network is a
 - Applies a configurable temperature offset to compensate for board self-heating.
 - Builds a structured JSON payload with telemetry, runtime counters, network metadata, and firmware information.
 - Sends the payload with an HTTP `POST` request to the configured API endpoint.
+- Maintains an MQTT connection and subscribes to a Wake-on-LAN command topic.
+- Sends a UDP Magic Packet on the local network when it receives the `wake` MQTT command.
 - Logs boot, Wi-Fi, telemetry, and API status over UART.
 - Runs an independent watchdog and self-healing recovery loop so the board can reboot if firmware or Wi-Fi operations get stuck.
 
@@ -38,6 +40,8 @@ Application code lives in `Core/Inc` and `Core/Src`:
 - `telemetry.c` / `telemetry.h`: sensor initialization and averaged readings.
 - `wifi_service.c` / `wifi_service.h`: small wrapper around ST's `wifi.h` API.
 - `api_client.c` / `api_client.h`: JSON payload creation and HTTP request sending.
+- `mqtt_client.c` / `mqtt_client.h`: minimal MQTT 3.1.1 client for `CONNECT`, `SUBSCRIBE`, QoS 1 wake commands, keepalive, and reconnects.
+- `wol.c` / `wol.h`: Wake-on-LAN Magic Packet builder and UDP broadcast sender.
 - `log.c` / `log.h`: UART logging helpers.
 - `system_health.c` / `system_health.h`: reset reason capture, independent watchdog startup, watchdog refresh, and forced MCU reset.
 - `main.c`: STM32CubeIDE-generated initialization plus calls to `App_Init()` and `App_Loop()`.
@@ -50,13 +54,16 @@ Important values:
 
 ```c
 #define APP_DEVICE_ID "stm32-room"
-#define APP_FIRMWARE_VERSION "1.2.1"
+#define APP_FIRMWARE_VERSION "1.3.0"
 #define APP_LOCATION "room"
 
 #define APP_API_HOST "iot.mathislambert.fr"
 #define APP_API_IP_ADDR {82U, 67U, 120U, 109U}
 #define APP_API_PATH "/api/ingest?device=" APP_DEVICE_ID
 #define APP_API_PORT 80U
+#define APP_MQTT_KEEPALIVE_SECONDS 60U
+
+#define APP_WOL_BROADCAST_PORT 9U
 
 #define APP_SEND_INTERVAL_MS 300000UL
 #define APP_SEND_RETRY_INTERVAL_MS 60000UL
@@ -84,10 +91,51 @@ That file is ignored by Git. Use `Core/Inc/app_secrets.example.h` as a template:
 #define APP_WIFI_SSID "your-2.4ghz-ssid"
 #define APP_WIFI_PASSWORD "your-wifi-password"
 
+#define APP_MQTT_HOST "your-mqtt-host.example.com"
+#define APP_MQTT_IP_ADDR_VALUE_0 192U
+#define APP_MQTT_IP_ADDR_VALUE_1 0U
+#define APP_MQTT_IP_ADDR_VALUE_2 2U
+#define APP_MQTT_IP_ADDR_VALUE_3 10U
+#define APP_MQTT_IP_ADDR {192U, 0U, 2U, 10U}
+#define APP_MQTT_PORT 1883U
+#define APP_MQTT_USERNAME "your-mqtt-username"
+#define APP_MQTT_PASSWORD "your-mqtt-password"
+#define APP_MQTT_WAKE_TOPIC "your/private/wake/topic"
+#define APP_MQTT_STATUS_TOPIC "your/private/status/topic"
+
+#define APP_WOL_PC_MAC {0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U}
+
 #endif
 ```
 
 Do not commit `Core/Inc/app_secrets.h`.
+
+`APP_WOL_PC_MAC` must be replaced with the Ethernet MAC address of the PC to wake. If it stays all zeroes, the firmware will refuse to send the Magic Packet and log an error.
+
+## MQTT Wake-on-LAN
+
+The firmware currently uses MQTT over plain TCP for STM32 compatibility. The public broker should restrict this account with ACLs to the wake and status topics only.
+
+Runtime flow:
+
+1. The board connects to Wi-Fi.
+2. It opens an MQTT TCP connection to `APP_MQTT_HOST:APP_MQTT_PORT`.
+3. It authenticates with the configured username and password.
+4. It subscribes to `APP_MQTT_WAKE_TOPIC` with QoS 1.
+5. When it receives payload `wake`, it sends a 102-byte Wake-on-LAN Magic Packet to the local `/24` broadcast address on UDP port `9`.
+
+Example command from a remote machine:
+
+```bash
+mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
+  -u "$MQTT_USERNAME" \
+  -P "$MQTT_PASSWORD" \
+  -t "$MQTT_WAKE_TOPIC" \
+  -m wake \
+  -q 1
+```
+
+TLS on `8883` is intentionally not enabled in firmware yet. The local driver has low-level SSL hints, but the public wrapper used by this project only exposes TCP and UDP cleanly. Plain MQTT is the first stable implementation target; MQTTS can be tested later behind a configurable `WifiService_OpenSslClient()` path.
 
 ## Payload
 
@@ -97,7 +145,7 @@ The firmware sends an HTTP `POST` request with a structured JSON body compatible
 {
   "device": {
     "id": "stm32-room",
-    "firmware": "1.2.1",
+    "firmware": "1.3.0",
     "location": "room"
   },
   "runtime": {
@@ -167,6 +215,8 @@ Example:
 [588] INFO  WiFi module initialized
 [591] INFO  Connecting to WiFi SSID "your_wifi_2.4GHz"
 [5660] INFO  WiFi connected with local IP 192.168.1.52
+[5665] INFO  Opening MQTT TCP connection to your-mqtt-host.example.com:1883 (192.0.2.10)
+[5901] INFO  MQTT connected and subscribed
 [6074] INFO  Telemetry temp=25.24C raw=31.24C hum=46.37% pressure=991.38hPa
 [6081] INFO  Opening TCP connection to iot.mathislambert.fr:80 (82.67.120.109)
 [9247] INFO  Sent 339/339 bytes to API

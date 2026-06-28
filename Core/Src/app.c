@@ -3,9 +3,11 @@
 #include "api_client.h"
 #include "app_config.h"
 #include "log.h"
+#include "mqtt_client.h"
 #include "system_health.h"
 #include "telemetry.h"
 #include "wifi_service.h"
+#include "wol.h"
 
 #include "stm32l4xx_hal.h"
 #include <stdint.h>
@@ -31,6 +33,23 @@ static uint32_t app_wifi_recovery_count;
 static uint32_t app_system_reset_request_count;
 static uint32_t app_last_success_uptime_ms;
 static const char *app_last_error;
+
+static void RegisterFailure(const char *reason, uint8_t count_as_send_failure);
+static void RegisterSuccess(void);
+
+static void HandleWakeCommand(void *user_context)
+{
+  (void)user_context;
+
+  if (Wol_SendMagicPacket(app_local_ip) != WOL_STATUS_OK)
+  {
+    RegisterFailure("wol_send_failed", 0U);
+  }
+  else
+  {
+    RegisterSuccess();
+  }
+}
 
 static AppDecimal2 AppDecimal2_FromFloat(float value)
 {
@@ -87,6 +106,7 @@ static void RecoverWifi(const char *reason)
            reason);
 
   (void)WifiService_CloseClient(APP_SOCKET_ID);
+  MqttClient_Reset();
   WifiService_Disconnect();
   (void)WifiService_ResetModule();
 
@@ -289,6 +309,8 @@ void App_Init(void)
            SystemHealth_GetResetReasonText(),
            (SystemHealth_IsWatchdogEnabled() != 0U) ? "enabled" : "disabled");
 
+  MqttClient_Init(HandleWakeCommand, 0);
+
   if (Telemetry_Init() != TELEMETRY_STATUS_OK)
   {
     Log_Error("Sensor initialization failed");
@@ -320,6 +342,11 @@ void App_Loop(void)
     SystemHealth_WatchdogRefresh();
     HAL_Delay(100U);
     return;
+  }
+
+  if (MqttClient_Process() != MQTT_CLIENT_STATUS_OK)
+  {
+    RegisterFailure("mqtt_process_failed", 0U);
   }
 
   if (TimeReached(app_next_send_ms))

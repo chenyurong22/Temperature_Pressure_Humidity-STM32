@@ -209,7 +209,7 @@ ApiClientStatus ApiClient_SendTelemetry(const TelemetryData *telemetry, const ui
            api_ip[2],
            api_ip[3]);
 
-  if (WifiService_OpenClient(APP_SOCKET_ID, api_ip, APP_API_PORT, APP_SOCKET_LOCAL_PORT) != WIFI_SERVICE_STATUS_OK)
+  if (WifiService_OpenTcpClient(APP_SOCKET_ID, APP_API_HOST, api_ip, APP_API_PORT, APP_SOCKET_LOCAL_PORT) != WIFI_SERVICE_STATUS_OK)
   {
     Log_Error("Unable to open API connection");
     return API_CLIENT_STATUS_ERROR;

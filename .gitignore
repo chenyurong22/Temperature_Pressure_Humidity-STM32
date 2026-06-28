@@ -18,6 +18,7 @@ Release/
 
 # Local secrets
 Core/Inc/app_secrets.h
+mqtt-wol.md
 
 # OS noise
 Thumbs.db

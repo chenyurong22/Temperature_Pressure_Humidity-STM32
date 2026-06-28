@@ -28,9 +28,14 @@ WifiServiceStatus WifiService_GetLocalIp(uint8_t ip_addr[4])
   return (WIFI_GetIP_Address(ip_addr) == WIFI_STATUS_OK) ? WIFI_SERVICE_STATUS_OK : WIFI_SERVICE_STATUS_ERROR;
 }
 
-WifiServiceStatus WifiService_OpenClient(uint8_t socket_id, const uint8_t ip_addr[4], uint16_t remote_port, uint16_t local_port)
+WifiServiceStatus WifiService_OpenTcpClient(uint8_t socket_id, const char *host, const uint8_t ip_addr[4], uint16_t remote_port, uint16_t local_port)
 {
-  return (WIFI_OpenClientConnection(socket_id, WIFI_TCP_PROTOCOL, APP_API_HOST, (uint8_t *)ip_addr, remote_port, local_port) == WIFI_STATUS_OK) ? WIFI_SERVICE_STATUS_OK : WIFI_SERVICE_STATUS_ERROR;
+  return (WIFI_OpenClientConnection(socket_id, WIFI_TCP_PROTOCOL, host, (uint8_t *)ip_addr, remote_port, local_port) == WIFI_STATUS_OK) ? WIFI_SERVICE_STATUS_OK : WIFI_SERVICE_STATUS_ERROR;
+}
+
+WifiServiceStatus WifiService_OpenUdpClient(uint8_t socket_id, const char *host, const uint8_t ip_addr[4], uint16_t remote_port, uint16_t local_port)
+{
+  return (WIFI_OpenClientConnection(socket_id, WIFI_UDP_PROTOCOL, host, (uint8_t *)ip_addr, remote_port, local_port) == WIFI_STATUS_OK) ? WIFI_SERVICE_STATUS_OK : WIFI_SERVICE_STATUS_ERROR;
 }
 
 WifiServiceStatus WifiService_CloseClient(uint8_t socket_id)
