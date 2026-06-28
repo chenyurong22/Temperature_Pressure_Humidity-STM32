@@ -13,6 +13,7 @@ The main use case is to keep a remote server informed that the home network is a
 - Builds a structured JSON payload with telemetry, runtime counters, network metadata, and firmware information.
 - Sends the payload with an HTTP `POST` request to the configured API endpoint.
 - Logs boot, Wi-Fi, telemetry, and API status over UART.
+- Runs an independent watchdog and self-healing recovery loop so the board can reboot if firmware or Wi-Fi operations get stuck.
 
 ## Hardware
 
@@ -38,6 +39,7 @@ Application code lives in `Core/Inc` and `Core/Src`:
 - `wifi_service.c` / `wifi_service.h`: small wrapper around ST's `wifi.h` API.
 - `api_client.c` / `api_client.h`: JSON payload creation and HTTP request sending.
 - `log.c` / `log.h`: UART logging helpers.
+- `system_health.c` / `system_health.h`: reset reason capture, independent watchdog startup, watchdog refresh, and forced MCU reset.
 - `main.c`: STM32CubeIDE-generated initialization plus calls to `App_Init()` and `App_Loop()`.
 
 ## Configuration
@@ -48,16 +50,18 @@ Important values:
 
 ```c
 #define APP_DEVICE_ID "stm32-room"
-#define APP_FIRMWARE_VERSION "1.1.0"
+#define APP_FIRMWARE_VERSION "1.2.1"
 #define APP_LOCATION "room"
 
 #define APP_API_HOST "iot.mathislambert.fr"
 #define APP_API_IP_ADDR {82U, 67U, 120U, 109U}
-#define APP_API_PATH "/?device=" APP_DEVICE_ID
+#define APP_API_PATH "/api/ingest?device=" APP_DEVICE_ID
 #define APP_API_PORT 80U
 
 #define APP_SEND_INTERVAL_MS 300000UL
 #define APP_SEND_RETRY_INTERVAL_MS 60000UL
+#define APP_WIFI_RECOVERY_FAILURE_THRESHOLD 3U
+#define APP_SYSTEM_RESET_FAILURE_THRESHOLD 12U
 #define APP_TEMPERATURE_OFFSET_C 6.0f
 ```
 
@@ -87,13 +91,13 @@ Do not commit `Core/Inc/app_secrets.h`.
 
 ## Payload
 
-The firmware sends an HTTP `POST` request with a JSON body similar to:
+The firmware sends an HTTP `POST` request with a structured JSON body compatible with the `/api/ingest` route from `iot-api`.
 
 ```json
 {
   "device": {
     "id": "stm32-room",
-    "firmware": "1.1.0",
+    "firmware": "1.2.1",
     "location": "room"
   },
   "runtime": {
@@ -101,7 +105,10 @@ The firmware sends an HTTP `POST` request with a JSON body similar to:
     "sequence": 1,
     "success_count": 0,
     "failure_count": 0,
-    "wifi_reconnect_count": 1
+    "wifi_reconnect_count": 1,
+    "consecutive_failure_count": 0,
+    "watchdog_enabled": 1,
+    "reset_reason": "power_on"
   },
   "network": {
     "ssid": "your_wifi_2.4GHz",
@@ -155,6 +162,7 @@ Example:
 
 ```text
 [2] INFO  Starting stm32-room
+[3] INFO  Reset reason=power_on watchdog=enabled
 [5] INFO  Sensors initialized
 [588] INFO  WiFi module initialized
 [591] INFO  Connecting to WiFi SSID "your_wifi_2.4GHz"
@@ -165,6 +173,17 @@ Example:
 [9496] INFO  API response received (255 bytes)
 [9588] INFO  Telemetry sent successfully
 ```
+
+## Self-Healing Behavior
+
+The firmware is designed to keep running unattended:
+
+- The independent watchdog (IWDG) starts early during boot and uses the STM32L4 LSI clock with the maximum practical timeout, about 32 seconds.
+- The watchdog is refreshed only from the main application loop. If the firmware blocks inside Wi-Fi, SPI, HAL, a fault handler, or `Error_Handler()`, the board resets automatically.
+- Consecutive failures are tracked and reported in the API payload.
+- After `APP_WIFI_RECOVERY_FAILURE_THRESHOLD` consecutive failures, the firmware closes the socket, disconnects Wi-Fi, resets the Wi-Fi module, and reconnects cleanly.
+- After `APP_SYSTEM_RESET_FAILURE_THRESHOLD` consecutive failures, the firmware requests a full MCU reset with `NVIC_SystemReset()`.
+- On boot, reset flags are captured before being cleared, then the reset reason is sent in the next payload.
 
 ## Notes
 

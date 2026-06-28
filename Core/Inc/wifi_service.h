@@ -10,6 +10,7 @@ typedef enum
 } WifiServiceStatus;
 
 WifiServiceStatus WifiService_Init(void);
+WifiServiceStatus WifiService_ResetModule(void);
 WifiServiceStatus WifiService_Connect(void);
 void WifiService_Disconnect(void);
 WifiServiceStatus WifiService_GetLocalIp(uint8_t ip_addr[4]);

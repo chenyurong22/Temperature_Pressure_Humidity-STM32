@@ -8,6 +8,11 @@ WifiServiceStatus WifiService_Init(void)
   return (WIFI_Init() == WIFI_STATUS_OK) ? WIFI_SERVICE_STATUS_OK : WIFI_SERVICE_STATUS_ERROR;
 }
 
+WifiServiceStatus WifiService_ResetModule(void)
+{
+  return (WIFI_ResetModule() == WIFI_STATUS_OK) ? WIFI_SERVICE_STATUS_OK : WIFI_SERVICE_STATUS_ERROR;
+}
+
 WifiServiceStatus WifiService_Connect(void)
 {
   return (WIFI_Connect(APP_WIFI_SSID, APP_WIFI_PASSWORD, (WIFI_Ecn_t)APP_WIFI_SECURITY) == WIFI_STATUS_OK) ? WIFI_SERVICE_STATUS_OK : WIFI_SERVICE_STATUS_ERROR;

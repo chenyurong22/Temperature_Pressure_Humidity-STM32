@@ -36,16 +36,53 @@ static int WriteTelemetryJson(char *buffer, size_t buffer_size, const TelemetryD
   Decimal2 raw_temperature = Decimal2_FromFloat(telemetry->temperature_raw_c);
   Decimal2 humidity = Decimal2_FromFloat(telemetry->humidity_percent);
   Decimal2 pressure = Decimal2_FromFloat(telemetry->pressure_hpa);
+  Decimal2 temperature_offset = Decimal2_FromFloat(APP_TEMPERATURE_OFFSET_C);
 
   return snprintf(buffer,
                   buffer_size,
                   "{"
-                  "\"device\":{\"id\":\"%s\",\"firmware\":\"%s\",\"location\":\"%s\"},"
-                  "\"runtime\":{\"uptime_ms\":%lu,\"sequence\":%lu,\"success_count\":%lu,\"failure_count\":%lu,\"wifi_reconnect_count\":%lu},"
-                  "\"network\":{\"ssid\":\"%s\",\"local_ip\":\"%u.%u.%u.%u\",\"api_host\":\"%s\",\"api_ip\":\"%u.%u.%u.%u\",\"api_port\":%u},"
-                  "\"config\":{\"send_interval_ms\":%lu,\"retry_interval_ms\":%lu,\"temperature_offset_c\":%ld.%02ld,\"sample_count\":%lu},"
-                  "\"sensors\":{\"humidity_sensor_id\":%u,\"pressure_sensor_id\":%u},"
-                  "\"telemetry\":{\"temperature_c\":%ld.%02ld,\"raw_temperature_c\":%ld.%02ld,\"humidity_percent\":%ld.%02ld,\"pressure_hpa\":%ld.%02ld}"
+                  "\"device\":{"
+                  "\"id\":\"%s\","
+                  "\"firmware\":\"%s\","
+                  "\"location\":\"%s\""
+                  "},"
+                  "\"runtime\":{"
+                  "\"uptime_ms\":%lu,"
+                  "\"sequence\":%lu,"
+                  "\"success_count\":%lu,"
+                  "\"failure_count\":%lu,"
+                  "\"wifi_reconnect_count\":%lu,"
+                  "\"consecutive_failure_count\":%lu,"
+                  "\"last_success_uptime_ms\":%lu,"
+                  "\"watchdog_enabled\":%u,"
+                  "\"reset_reason\":\"%s\","
+                  "\"last_error\":\"%s\","
+                  "\"wifi_recovery_count\":%lu,"
+                  "\"system_reset_request_count\":%lu"
+                  "},"
+                  "\"network\":{"
+                  "\"ssid\":\"%s\","
+                  "\"local_ip\":\"%u.%u.%u.%u\","
+                  "\"api_host\":\"%s\","
+                  "\"api_ip\":\"%u.%u.%u.%u\","
+                  "\"api_port\":%u"
+                  "},"
+                  "\"config\":{"
+                  "\"send_interval_ms\":%lu,"
+                  "\"retry_interval_ms\":%lu,"
+                  "\"temperature_offset_c\":%ld.%02ld,"
+                  "\"sample_count\":%lu"
+                  "},"
+                  "\"sensors\":{"
+                  "\"humidity_sensor_id\":%u,"
+                  "\"pressure_sensor_id\":%u"
+                  "},"
+                  "\"telemetry\":{"
+                  "\"temperature_c\":%ld.%02ld,"
+                  "\"raw_temperature_c\":%ld.%02ld,"
+                  "\"humidity_percent\":%ld.%02ld,"
+                  "\"pressure_hpa\":%ld.%02ld"
+                  "}"
                   "}",
                   APP_DEVICE_ID,
                   APP_FIRMWARE_VERSION,
@@ -55,6 +92,13 @@ static int WriteTelemetryJson(char *buffer, size_t buffer_size, const TelemetryD
                   context->success_count,
                   context->failure_count,
                   context->wifi_reconnect_count,
+                  context->consecutive_failure_count,
+                  context->last_success_uptime_ms,
+                  context->watchdog_enabled,
+                  (context->reset_reason != 0) ? context->reset_reason : "unknown",
+                  (context->last_error != 0) ? context->last_error : "none",
+                  context->wifi_recovery_count,
+                  context->system_reset_request_count,
                   APP_WIFI_SSID,
                   local_ip[0],
                   local_ip[1],
@@ -68,8 +112,8 @@ static int WriteTelemetryJson(char *buffer, size_t buffer_size, const TelemetryD
                   APP_API_PORT,
                   APP_SEND_INTERVAL_MS,
                   APP_SEND_RETRY_INTERVAL_MS,
-                  Decimal2_FromFloat(APP_TEMPERATURE_OFFSET_C).whole,
-                  Decimal2_FromFloat(APP_TEMPERATURE_OFFSET_C).fraction,
+                  temperature_offset.whole,
+                  temperature_offset.fraction,
                   telemetry->sample_count,
                   telemetry->humidity_sensor_id,
                   telemetry->pressure_sensor_id,
@@ -102,11 +146,35 @@ static int WriteHttpRequest(char *buffer, size_t buffer_size, const char *body)
                   body);
 }
 
+static uint8_t IsHttpSuccessResponse(const char *response)
+{
+  const char *status_code;
+
+  if (response == 0)
+  {
+    return 0U;
+  }
+
+  if (strncmp(response, "HTTP/", 5U) != 0)
+  {
+    return 0U;
+  }
+
+  status_code = strchr(response, ' ');
+  if (status_code == 0)
+  {
+    return 0U;
+  }
+
+  status_code++;
+  return (strncmp(status_code, "200", 3U) == 0) ? 1U : 0U;
+}
+
 ApiClientStatus ApiClient_SendTelemetry(const TelemetryData *telemetry, const uint8_t local_ip[4], const ApiClientContext *context)
 {
   uint8_t api_ip[4] = APP_API_IP_ADDR;
-  char body[768];
-  char request[1024];
+  char body[1200];
+  char request[1600];
   uint8_t response[256];
   uint16_t sent_length = 0;
   uint16_t received_length = 0;
@@ -155,12 +223,18 @@ ApiClientStatus ApiClient_SendTelemetry(const TelemetryData *telemetry, const ui
     {
       response[received_length] = '\0';
       Log_Info("API response received (%u bytes)", received_length);
-      status = API_CLIENT_STATUS_OK;
+      if (IsHttpSuccessResponse((char *)response) != 0U)
+      {
+        status = API_CLIENT_STATUS_OK;
+      }
+      else
+      {
+        Log_Error("API returned an unexpected HTTP response: %.48s", response);
+      }
     }
     else
     {
       Log_Warn("No API response received before timeout");
-      status = API_CLIENT_STATUS_OK;
     }
   }
   else

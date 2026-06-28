@@ -3,6 +3,7 @@
 #include "api_client.h"
 #include "app_config.h"
 #include "log.h"
+#include "system_health.h"
 #include "telemetry.h"
 #include "wifi_service.h"
 
@@ -24,7 +25,12 @@ static uint8_t app_local_ip[4];
 static uint32_t app_sequence;
 static uint32_t app_send_success_count;
 static uint32_t app_send_failure_count;
+static uint32_t app_consecutive_failure_count;
 static uint32_t app_wifi_reconnect_count;
+static uint32_t app_wifi_recovery_count;
+static uint32_t app_system_reset_request_count;
+static uint32_t app_last_success_uptime_ms;
+static const char *app_last_error;
 
 static AppDecimal2 AppDecimal2_FromFloat(float value)
 {
@@ -61,6 +67,79 @@ static void ScheduleSendRetry(void)
   app_next_send_ms = HAL_GetTick() + APP_SEND_RETRY_INTERVAL_MS;
 }
 
+static void RequestSystemReset(const char *reason)
+{
+  app_system_reset_request_count++;
+  app_last_error = reason;
+  Log_Error("System reset requested after %lu consecutive failure(s): %s",
+            app_consecutive_failure_count,
+            reason);
+  HAL_Delay(100U);
+  SystemHealth_RequestReset();
+}
+
+static void RecoverWifi(const char *reason)
+{
+  app_wifi_recovery_count++;
+  Log_Warn("WiFi recovery #%lu after %lu consecutive failure(s): %s",
+           app_wifi_recovery_count,
+           app_consecutive_failure_count,
+           reason);
+
+  (void)WifiService_CloseClient(APP_SOCKET_ID);
+  WifiService_Disconnect();
+  (void)WifiService_ResetModule();
+
+  app_wifi_connected = 0U;
+  app_wifi_module_ready = 0U;
+  ScheduleRetry();
+}
+
+static void RegisterFailure(const char *reason, uint8_t count_as_send_failure)
+{
+  app_last_error = reason;
+  app_consecutive_failure_count++;
+
+  if (count_as_send_failure != 0U)
+  {
+    app_send_failure_count++;
+  }
+
+  Log_Warn("Failure #%lu: %s", app_consecutive_failure_count, reason);
+
+  if (app_consecutive_failure_count >= APP_SYSTEM_RESET_FAILURE_THRESHOLD)
+  {
+    RequestSystemReset(reason);
+  }
+
+  if ((app_consecutive_failure_count % APP_WIFI_RECOVERY_FAILURE_THRESHOLD) == 0U)
+  {
+    RecoverWifi(reason);
+  }
+}
+
+static void RegisterSuccess(void)
+{
+  app_consecutive_failure_count = 0U;
+  app_last_error = "none";
+  app_last_success_uptime_ms = HAL_GetTick();
+}
+
+static void BuildApiContext(ApiClientContext *context)
+{
+  context->sequence = app_sequence;
+  context->success_count = app_send_success_count;
+  context->failure_count = app_send_failure_count;
+  context->consecutive_failure_count = app_consecutive_failure_count;
+  context->wifi_reconnect_count = app_wifi_reconnect_count;
+  context->wifi_recovery_count = app_wifi_recovery_count;
+  context->system_reset_request_count = app_system_reset_request_count;
+  context->last_success_uptime_ms = app_last_success_uptime_ms;
+  context->watchdog_enabled = SystemHealth_IsWatchdogEnabled();
+  context->last_error = app_last_error;
+  context->reset_reason = SystemHealth_GetResetReasonText();
+}
+
 static uint8_t EnsureWifiConnected(void)
 {
   if (app_wifi_module_ready == 0U)
@@ -74,6 +153,7 @@ static uint8_t EnsureWifiConnected(void)
     if (WifiService_Init() != WIFI_SERVICE_STATUS_OK)
     {
       Log_Error("WiFi module initialization failed");
+      RegisterFailure("wifi_init_failed", 0U);
       ScheduleRetry();
       return 0U;
     }
@@ -96,6 +176,8 @@ static uint8_t EnsureWifiConnected(void)
   if (WifiService_Connect() != WIFI_SERVICE_STATUS_OK)
   {
     Log_Error("WiFi connection failed");
+    app_wifi_connected = 0U;
+    RegisterFailure("wifi_connect_failed", 0U);
     ScheduleRetry();
     return 0U;
   }
@@ -104,6 +186,8 @@ static uint8_t EnsureWifiConnected(void)
   {
     Log_Error("Unable to read local IP address");
     WifiService_Disconnect();
+    app_wifi_connected = 0U;
+    RegisterFailure("wifi_ip_read_failed", 0U);
     ScheduleRetry();
     return 0U;
   }
@@ -134,6 +218,7 @@ static void SendTelemetryCycle(void)
     if (Telemetry_Init() != TELEMETRY_STATUS_OK)
     {
       Log_Error("Sensor initialization failed");
+      RegisterFailure("sensor_init_failed", 0U);
       ScheduleNextSend();
       return;
     }
@@ -145,6 +230,7 @@ static void SendTelemetryCycle(void)
   if (Telemetry_Read(&telemetry) != TELEMETRY_STATUS_OK)
   {
     Log_Error("Unable to read telemetry");
+    RegisterFailure("telemetry_read_failed", 0U);
     ScheduleNextSend();
     return;
   }
@@ -165,20 +251,18 @@ static void SendTelemetryCycle(void)
            pressure.fraction);
 
   app_sequence++;
-  api_context.sequence = app_sequence;
-  api_context.success_count = app_send_success_count;
-  api_context.failure_count = app_send_failure_count;
-  api_context.wifi_reconnect_count = app_wifi_reconnect_count;
+  BuildApiContext(&api_context);
 
   if (ApiClient_SendTelemetry(&telemetry, app_local_ip, &api_context) != API_CLIENT_STATUS_OK)
   {
-    app_send_failure_count++;
     Log_Error("Telemetry send failed, API retry scheduled");
+    RegisterFailure("api_send_failed", 1U);
     ScheduleSendRetry();
     return;
   }
 
   app_send_success_count++;
+  RegisterSuccess();
   Log_Info("Telemetry sent successfully");
   ScheduleNextSend();
 }
@@ -193,13 +277,22 @@ void App_Init(void)
   app_sequence = 0U;
   app_send_success_count = 0U;
   app_send_failure_count = 0U;
+  app_consecutive_failure_count = 0U;
   app_wifi_reconnect_count = 0U;
+  app_wifi_recovery_count = 0U;
+  app_system_reset_request_count = 0U;
+  app_last_success_uptime_ms = 0U;
+  app_last_error = "none";
 
   Log_Info("Starting %s", APP_DEVICE_ID);
+  Log_Info("Reset reason=%s watchdog=%s",
+           SystemHealth_GetResetReasonText(),
+           (SystemHealth_IsWatchdogEnabled() != 0U) ? "enabled" : "disabled");
 
   if (Telemetry_Init() != TELEMETRY_STATUS_OK)
   {
     Log_Error("Sensor initialization failed");
+    RegisterFailure("sensor_init_failed", 0U);
   }
   else
   {
@@ -210,6 +303,7 @@ void App_Init(void)
   if (WifiService_Init() != WIFI_SERVICE_STATUS_OK)
   {
     Log_Error("WiFi module initialization failed");
+    RegisterFailure("wifi_init_failed", 0U);
     ScheduleRetry();
   }
   else
@@ -223,6 +317,7 @@ void App_Loop(void)
 {
   if (EnsureWifiConnected() == 0U)
   {
+    SystemHealth_WatchdogRefresh();
     HAL_Delay(100U);
     return;
   }
@@ -232,5 +327,6 @@ void App_Loop(void)
     SendTelemetryCycle();
   }
 
+  SystemHealth_WatchdogRefresh();
   HAL_Delay(100U);
 }

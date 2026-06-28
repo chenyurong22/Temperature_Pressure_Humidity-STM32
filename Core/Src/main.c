@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "app.h"
 #include "log.h"
+#include "system_health.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -86,6 +87,7 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+  SystemHealth_Init();
 
   /* Configure the system clock */
   SystemClock_Config();
